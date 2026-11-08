@@ -256,10 +256,7 @@ internal sealed class ScreenScanFrameWorker : IAsyncDisposable
         this.CaptureInterval = settings.CaptureInterval > 0
             ? TimeSpan.FromSeconds(Math.Max(0.25, settings.CaptureInterval))
             : TimeSpan.FromMilliseconds(400);
-        this.OcrScale = ocrSettings.Scale;
     }
-
-    private double OcrScale { get; }
 
     public async Task CaptureAsync(Rect bounds, double dpiScaleX, double dpiScaleY)
     {
@@ -480,6 +477,7 @@ internal sealed class ScreenScanFrameWindow : Window
             {
                 this.logger.LogWarning("画面OCRフレームを画面キャプチャから除外できませんでした。Win32 error: {Error}", Marshal.GetLastWin32Error());
             }
+            SetEditMode(this.titleBar.Visibility == Visibility.Visible);
             this.timer.Start();
             _ = CaptureTickAsync();
         };
