@@ -10,9 +10,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Shapes;
 using System.Windows.Threading;
-using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -593,9 +591,9 @@ internal sealed class ScreenScanFrameWindow : Window
 
         var handle = new WindowInteropHelper(this).Handle;
         var style = GetWindowLong(handle, -20);
-        const long transparent = 0x00000020;
-        const long noActivate = 0x08000000;
-        const long toolWindow = 0x00000080;
+        const int transparent = 0x00000020;
+        const int noActivate = 0x08000000;
+        const int toolWindow = 0x00000080;
         style |= toolWindow;
         if (enabled)
         {
