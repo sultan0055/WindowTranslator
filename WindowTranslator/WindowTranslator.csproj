@@ -61,7 +61,6 @@
     <PackageReference Include="Octokit" />
     <PackageReference Include="PropertyTools.Wpf" />
     <PackageReference Include="Sentry.Extensions.Logging" />
-    <PackageReference Include="System.Drawing.Common" />
     <PackageReference Include="WPF-UI" />
     <PackageReference Include="WPF-UI.Tray" />
     <PackageReference Include="WpfAnalyzers">
