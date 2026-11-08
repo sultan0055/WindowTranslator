@@ -32,6 +32,7 @@ using WindowTranslator.Modules.Capture;
 using WindowTranslator.Modules.ErrorReport;
 using WindowTranslator.Modules.LogView;
 using WindowTranslator.Modules.Main;
+using WindowTranslator.Modules.ScreenScan;
 using WindowTranslator.Modules.Ocr;
 using WindowTranslator.Modules.PluginStore;
 using WindowTranslator.Modules.Settings;
@@ -145,6 +146,7 @@ builder.Configuration
     .AddJsonFile(PathUtility.UserSettings, true, true);
 
 builder.Services.AddSingleton<IMainWindowModule, MainWindowModule>();
+builder.Services.AddSingleton<ScreenScanFramesModule>();
 builder.Services.AddSingleton<IModelHistoryStore, ModelHistoryStore>();
 builder.Services.AddScoped<IOcrTextTracker>(sp => new OcrTextTracker(
     sp.GetRequiredService<ILogger<OcrTextTracker>>(),
