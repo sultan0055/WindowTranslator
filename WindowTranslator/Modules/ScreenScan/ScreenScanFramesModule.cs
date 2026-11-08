@@ -39,6 +39,7 @@ public sealed class ScreenScanFramesModule : IDisposable
     private readonly string settingsPath = Path.Combine(PathUtility.UserDir, "screen-scan-frames.json");
     private bool restored;
     private bool disposed;
+    private bool editMode;
 
     public ScreenScanFramesModule(IServiceProvider serviceProvider, ILogger<ScreenScanFramesModule> logger)
     {
@@ -82,6 +83,11 @@ public sealed class ScreenScanFramesModule : IDisposable
             return;
         }
 
+        this.editMode = true;
+        foreach (var entry in this.frames.Values)
+        {
+            entry.Window.SetEditMode(true);
+        }
         OpenFrame(new(Guid.NewGuid(), bounds.Left, bounds.Top, bounds.Width, bounds.Height));
     }
 
@@ -108,12 +114,22 @@ public sealed class ScreenScanFramesModule : IDisposable
 
             this.frames.Add(geometry.Id, new(scope, worker, window, geometry));
             window.Show();
+            window.SetEditMode(this.editMode);
             Save();
         }
         catch
         {
             scope.Dispose();
             throw;
+        }
+    }
+
+    public void ToggleEditMode()
+    {
+        this.editMode = !this.editMode;
+        foreach (var entry in this.frames.Values)
+        {
+            entry.Window.SetEditMode(this.editMode);
         }
     }
 
@@ -415,6 +431,9 @@ internal sealed class ScreenScanFrameWindow : Window
     private readonly DispatcherTimer timer = new();
     private readonly ILogger logger;
     private readonly OverlayTextsControl overlay;
+    private readonly FrameworkElement titleBar;
+    private readonly Thumb resizeThumb;
+    private bool editMode;
     private int capturing;
 
     public ScreenScanFrameWindow(
@@ -540,6 +559,7 @@ internal sealed class ScreenScanFrameWindow : Window
         };
         Panel.SetZIndex(titleBar, 2);
         root.Children.Add(titleBar);
+        this.titleBar = titleBar;
 
         var resizeThumb = new Thumb
         {
@@ -560,8 +580,38 @@ internal sealed class ScreenScanFrameWindow : Window
         resizeThumb.DragCompleted += (_, _) => NotifyGeometryChanged();
         Panel.SetZIndex(resizeThumb, 3);
         root.Children.Add(resizeThumb);
+        this.resizeThumb = resizeThumb;
 
         return root;
+    }
+
+    public void SetEditMode(bool enabled)
+    {
+        this.editMode = enabled;
+        this.titleBar.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        this.resizeThumb.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        var handle = new WindowInteropHelper(this).Handle;
+        var style = GetWindowLongPtr(handle, -20).ToInt64();
+        const long transparent = 0x00000020;
+        const long noActivate = 0x08000000;
+        const long toolWindow = 0x00000080;
+        style |= toolWindow;
+        if (enabled)
+        {
+            style &= ~transparent;
+            style &= ~noActivate;
+        }
+        else
+        {
+            style |= transparent;
+            style |= noActivate;
+        }
+        SetWindowLongPtr(handle, -20, new IntPtr(style));
     }
 
     private async Task CaptureTickAsync()
@@ -594,6 +644,12 @@ internal sealed class ScreenScanFrameWindow : Window
             Height = Height,
         });
 
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
@@ -605,7 +661,7 @@ internal sealed class ScreenScanFrameWindow : Window
 public sealed class ScreenScanSelectionWindow : Window
 {
     private readonly Canvas canvas = new();
-    private readonly Rectangle selection = new()
+    private readonly System.Windows.Shapes.Rectangle selection = new()
     {
         Fill = new SolidColorBrush(MediaColor.FromArgb(65, 0, 190, 255)),
         Stroke = new SolidColorBrush(MediaColor.FromArgb(255, 0, 210, 255)),
