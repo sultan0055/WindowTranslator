@@ -364,7 +364,7 @@ internal sealed class ScreenScanFrameWorker : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        this.cancellation.Cancel();
+        await this.cancellation.CancelAsync().ConfigureAwait(false);
         await this.captureLock.WaitAsync().ConfigureAwait(false);
         this.captureLock.Release();
         this.captureLock.Dispose();
@@ -391,7 +391,7 @@ internal static class ScreenCaptureUtility
         return Task.Run(async () =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            using var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using (var graphics = Graphics.FromImage(bitmap))
             {
                 graphics.CopyFromScreen(
@@ -469,7 +469,7 @@ internal sealed class ScreenScanFrameWindow : Window
         Content = BuildContent();
 
         this.timer.Interval = worker.CaptureInterval;
-        this.timer.Tick += async (_, _) => await CaptureTickAsync();
+        this.timer.Tick += Timer_Tick;
         Loaded += (_, _) =>
         {
             var handle = new WindowInteropHelper(this).Handle;
@@ -488,7 +488,7 @@ internal sealed class ScreenScanFrameWindow : Window
         };
     }
 
-    private UIElement BuildContent()
+    private Grid BuildContent()
     {
         var root = new Grid();
 
@@ -571,8 +571,8 @@ internal sealed class ScreenScanFrameWindow : Window
         };
         resizeThumb.DragDelta += (_, e) =>
         {
-            Width = Math.Max(MinWidth, Width + e.HorizontalChange);
-            Height = Math.Max(MinHeight, Height + e.VerticalChange);
+            SetCurrentValue(WidthProperty, Math.Max(MinWidth, Width + e.HorizontalChange));
+            SetCurrentValue(HeightProperty, Math.Max(MinHeight, Height + e.VerticalChange));
         };
         resizeThumb.DragCompleted += (_, _) => NotifyGeometryChanged();
         Panel.SetZIndex(resizeThumb, 3);
@@ -584,8 +584,8 @@ internal sealed class ScreenScanFrameWindow : Window
 
     public void SetEditMode(bool enabled)
     {
-        this.titleBar.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
-        this.resizeThumb.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        this.titleBar.SetCurrentValue(VisibilityProperty, enabled ? Visibility.Visible : Visibility.Collapsed);
+        this.resizeThumb.SetCurrentValue(VisibilityProperty, enabled ? Visibility.Visible : Visibility.Collapsed);
         if (!IsLoaded)
         {
             return;
@@ -607,7 +607,23 @@ internal sealed class ScreenScanFrameWindow : Window
             style |= transparent;
             style |= noActivate;
         }
-        SetWindowLong(handle, -20, style);
+        var previousStyle = SetWindowLong(handle, -20, style);
+        if (previousStyle == 0 && Marshal.GetLastWin32Error() != 0)
+        {
+            this.logger.LogWarning("画面OCRフレームのウィンドウスタイルを変更できませんでした。Win32 error: {Error}", Marshal.GetLastWin32Error());
+        }
+    }
+
+    private async void Timer_Tick(object? sender, EventArgs e)
+    {
+        try
+        {
+            await CaptureTickAsync();
+        }
+        catch (Exception exception)
+        {
+            this.logger.LogError(exception, "画面OCRフレームの定期キャプチャーに失敗しました。");
+        }
     }
 
     private async Task CaptureTickAsync()
@@ -622,8 +638,8 @@ internal sealed class ScreenScanFrameWindow : Window
             var dpi = VisualTreeHelper.GetDpi(this);
             var bounds = new Rect(Left, Top, ActualWidth, ActualHeight);
             await this.worker.CaptureAsync(bounds, dpi.DpiScaleX, dpi.DpiScaleY);
-            this.overlay.RectWidth = this.worker.ImageWidth;
-            this.overlay.RectHeight = this.worker.ImageHeight;
+            this.overlay.SetCurrentValue(OverlayTextsControl.RectWidthProperty, (double)this.worker.ImageWidth);
+            this.overlay.SetCurrentValue(OverlayTextsControl.RectHeightProperty, (double)this.worker.ImageHeight);
         }
         finally
         {
@@ -729,7 +745,7 @@ public sealed class ScreenScanSelectionWindow : Window
         this.startPoint = e.GetPosition(this.canvas);
         this.selecting = true;
         this.canvas.CaptureMouse();
-        this.selection.Visibility = Visibility.Visible;
+        this.selection.SetCurrentValue(VisibilityProperty, Visibility.Visible);
         UpdateSelection(e.GetPosition(this.canvas));
     }
 
@@ -756,7 +772,7 @@ public sealed class ScreenScanSelectionWindow : Window
         var height = this.selection.Height;
         if (width < 80 || height < 40)
         {
-            this.selection.Visibility = Visibility.Collapsed;
+            this.selection.SetCurrentValue(VisibilityProperty, Visibility.Collapsed);
             return;
         }
 
@@ -778,7 +794,7 @@ public sealed class ScreenScanSelectionWindow : Window
 
         Canvas.SetLeft(this.selection, left);
         Canvas.SetTop(this.selection, top);
-        this.selection.Width = right - left;
-        this.selection.Height = bottom - top;
+        this.selection.SetCurrentValue(WidthProperty, right - left);
+        this.selection.SetCurrentValue(HeightProperty, bottom - top);
     }
 }
