@@ -44,8 +44,12 @@ public partial class StartupViewModel
         this.TaskBarIconMenus =
         [
             new MenuItemViewModel(Resources.Attach, this.RunCommand, []),
-            new MenuItemViewModel("إضافة إطار مسح مستقل", this.AddScreenScanFrameCommand, []),
-            new MenuItemViewModel("تبديل وضع تعديل الإطارات", this.ToggleScreenScanEditModeCommand, []),
+            new MenuItemViewModel("نوافذ مخصصة", null,
+            [
+                new MenuItemViewModel("إضافة نافذة مخصصة", this.AddScreenScanFrameCommand, []),
+                new MenuItemViewModel("إظهار حدود النوافذ للتعديل", this.ShowScreenScanFramesCommand, []),
+                new MenuItemViewModel("إخفاء حدود النوافذ بالكامل", this.HideScreenScanFramesCommand, []),
+            ]),
             new MenuItemViewModel(Resources.Attaching, null, this.attachingWindows),
             new MenuItemViewModel(Resources.Settings, this.OpenSettingsDialogCommand, []),
             new MenuItemViewModel(Resources.Log, this.OpenLogWindowCommand, []),
@@ -157,8 +161,12 @@ public partial class StartupViewModel
     }
 
     [RelayCommand]
-    private void ToggleScreenScanEditMode()
-        => this.screenScanFrames.ToggleEditMode();
+    private void ShowScreenScanFrames()
+        => this.screenScanFrames.SetEditMode(true);
+
+    [RelayCommand]
+    private void HideScreenScanFrames()
+        => this.screenScanFrames.SetEditMode(false);
 
     [RelayCommand]
     private void AddScreenScanFrame()
