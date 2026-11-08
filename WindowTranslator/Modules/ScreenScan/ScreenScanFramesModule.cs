@@ -170,6 +170,11 @@ public sealed class ScreenScanFramesModule : IDisposable
 
     private void Save()
     {
+        if (this.disposed)
+        {
+            return;
+        }
+
         try
         {
             Directory.CreateDirectory(PathUtility.UserDir);
