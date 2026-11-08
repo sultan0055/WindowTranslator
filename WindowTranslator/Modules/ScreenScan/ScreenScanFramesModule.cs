@@ -243,8 +243,6 @@ internal sealed class ScreenScanFrameWorker : IAsyncDisposable
     public ScreenScanFrameWorker(IServiceProvider provider, ILogger logger)
     {
         var settings = provider.GetRequiredService<IOptionsSnapshot<TargetSettings>>().Value;
-        var ocrSettings = provider.GetRequiredService<IOptionsSnapshot<BasicOcrParam>>().Value;
-
         this.ocr = provider.GetRequiredService<IOcrModule>();
         this.tracker = provider.GetRequiredService<IOcrTextTracker>();
         this.translator = provider.GetRequiredService<ITranslateModule>();
