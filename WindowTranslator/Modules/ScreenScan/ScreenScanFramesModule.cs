@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
-using System.Drawing;
+using Bitmap = System.Drawing.Bitmap;
+using CopyPixelOperation = System.Drawing.CopyPixelOperation;
+using Graphics = System.Drawing.Graphics;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
