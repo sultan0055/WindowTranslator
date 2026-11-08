@@ -723,13 +723,16 @@ internal sealed class ScreenScanFrameWindow : Window
     }
 
     private void NotifyGeometryChanged()
-        => this.geometryChanged(this.geometry with
+    {
+        this.geometry = this.geometry with
         {
             Left = Left,
             Top = Top,
             Width = Width,
             Height = Height,
-        });
+        };
+        this.geometryChanged(this.geometry);
+    }
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
