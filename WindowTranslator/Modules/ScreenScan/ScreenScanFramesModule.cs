@@ -267,7 +267,7 @@ internal sealed class ScreenScanFrameWorker : IAsyncDisposable
             return;
         }
 
-        if (!await this.captureLock.WaitAsync(0, this.cancellation.Token).ConfigureAwait(false))
+        if (!await this.captureLock.WaitAsync(0).ConfigureAwait(false))
         {
             return;
         }
