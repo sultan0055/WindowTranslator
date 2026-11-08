@@ -163,10 +163,7 @@ public partial class StartupViewModel
     [RelayCommand]
     private void AddScreenScanFrame()
     {
-        var selection = new ScreenScanSelectionWindow
-        {
-            Owner = Application.Current.MainWindow,
-        };
+        var selection = new ScreenScanSelectionWindow();
         if (selection.ShowDialog() == true && selection.SelectedBounds is { } bounds)
         {
             this.screenScanFrames.AddFrame(bounds);
