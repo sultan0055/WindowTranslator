@@ -106,7 +106,7 @@ public sealed class ScreenScanFramesModule : IDisposable
             var processInfo = scope.ServiceProvider.GetRequiredService<IProcessInfoStoreInternal>();
             processInfo.SetTargetProcess(IntPtr.Zero, $"ScreenScanFrame-{geometry.Id:N}");
 
-            var worker = new ScreenScanFrameWorker(scope.ServiceProvider, this.logger);
+            var worker = new ScreenScanFrameWorker(scope.ServiceProvider, this.logger, geometry.Appearance ?? new());
             var window = new ScreenScanFrameWindow(
                 geometry,
                 worker,
@@ -127,11 +127,14 @@ public sealed class ScreenScanFramesModule : IDisposable
     }
 
     public void ToggleEditMode()
+        => SetEditMode(!this.editMode);
+
+    public void SetEditMode(bool enabled)
     {
-        this.editMode = !this.editMode;
+        this.editMode = enabled;
         foreach (var entry in this.frames.Values)
         {
-            entry.Window.SetEditMode(this.editMode);
+            entry.Window.SetEditMode(enabled);
         }
     }
 
@@ -220,7 +223,19 @@ public sealed class ScreenScanFramesModule : IDisposable
 /// <summary>
 /// 画面上に配置するOCRフレームの位置と大きさ。
 /// </summary>
-public sealed record ScreenScanFrameGeometry(Guid Id, double Left, double Top, double Width, double Height);
+public sealed record ScreenScanFrameAppearance(
+    double FontScale = 1.0,
+    string TextColor = "#FFFFFF",
+    string BackgroundColor = "#202020",
+    double BackgroundOpacity = 0.75);
+
+public sealed record ScreenScanFrameGeometry(
+    Guid Id,
+    double Left,
+    double Top,
+    double Width,
+    double Height,
+    ScreenScanFrameAppearance? Appearance = null);
 
 /// <summary>
 /// 1つのデスクトップOCRフレーム専用の認識・翻訳パイプライン。
@@ -234,18 +249,18 @@ internal sealed class ScreenScanFrameWorker : IAsyncDisposable
     private readonly IColorModule color;
     private readonly IFilterModule[] filters;
     private readonly ILogger logger;
-    private readonly double fontScale;
-    private readonly double overlayOpacity;
+    private ScreenScanFrameAppearance appearance;
     private readonly SemaphoreSlim captureLock = new(1, 1);
     private readonly CancellationTokenSource cancellation = new();
 
     public ObservableCollection<TextRect> OcrTexts { get; } = [];
     public string Font { get; }
     public TimeSpan CaptureInterval { get; }
+    public ScreenScanFrameAppearance Appearance => this.appearance;
     public int ImageWidth { get; private set; }
     public int ImageHeight { get; private set; }
 
-    public ScreenScanFrameWorker(IServiceProvider provider, ILogger logger)
+    public ScreenScanFrameWorker(IServiceProvider provider, ILogger logger, ScreenScanFrameAppearance appearance)
     {
         var settings = provider.GetRequiredService<IOptionsSnapshot<TargetSettings>>().Value;
         this.ocr = provider.GetRequiredService<IOcrModule>();
@@ -256,8 +271,7 @@ internal sealed class ScreenScanFrameWorker : IAsyncDisposable
         this.filters = provider.GetServices<IFilterModule>().ToArray();
         this.logger = logger;
         this.Font = settings.Font;
-        this.fontScale = settings.FontScale;
-        this.overlayOpacity = settings.OverlayOpacity;
+        this.appearance = appearance;
         this.CaptureInterval = settings.CaptureInterval > 0
             ? TimeSpan.FromSeconds(Math.Max(0.25, settings.CaptureInterval))
             : TimeSpan.FromMilliseconds(400);
@@ -295,7 +309,7 @@ internal sealed class ScreenScanFrameWorker : IAsyncDisposable
             this.cancellation.Token.ThrowIfCancellationRequested();
 
             IEnumerable<TextRect> texts = this.tracker.Update(observations, imageSize)
-                .Select(text => text with { FontSize = text.FontSize * this.fontScale });
+                .Select(text => text with { FontSize = text.FontSize * this.appearance.FontScale });
             texts = (await this.color.ConvertColorAsync(bitmap, texts).ConfigureAwait(false)).ToArray();
             texts = texts.Select(text => text switch
             {
@@ -337,9 +351,16 @@ internal sealed class ScreenScanFrameWorker : IAsyncDisposable
             texts = await postTranslate.ToArrayAsync(this.cancellation.Token).ConfigureAwait(false);
             this.cancellation.Token.ThrowIfCancellationRequested();
 
-            var alpha = (int)Math.Clamp(255 * this.overlayOpacity, 0, 255);
+            var appearance = this.appearance;
+            var textColor = ParseColor(appearance.TextColor, DrawingColor.White);
+            var backgroundColor = ParseColor(appearance.BackgroundColor, DrawingColor.FromArgb(255, 32, 32, 32));
+            var alpha = (int)Math.Clamp(255 * appearance.BackgroundOpacity * backgroundColor.A / 255d, 0, 255);
             var result = texts
-                .Select(text => text with { Background = DrawingColor.FromArgb(alpha, text.Background) })
+                .Select(text => text with
+                {
+                    Foreground = textColor,
+                    Background = DrawingColor.FromArgb(alpha, backgroundColor.R, backgroundColor.G, backgroundColor.B),
+                })
                 .ToArray();
 
             if (Application.Current is { } app && !app.Dispatcher.HasShutdownStarted)
@@ -364,6 +385,21 @@ internal sealed class ScreenScanFrameWorker : IAsyncDisposable
         finally
         {
             this.captureLock.Release();
+        }
+    }
+
+    public void UpdateAppearance(ScreenScanFrameAppearance appearance)
+        => this.appearance = appearance;
+
+    private static DrawingColor ParseColor(string value, DrawingColor fallback)
+    {
+        try
+        {
+            return System.Drawing.ColorTranslator.FromHtml(value);
+        }
+        catch (Exception)
+        {
+            return fallback;
         }
     }
 
@@ -427,13 +463,14 @@ internal static class ScreenCaptureUtility
 internal sealed class ScreenScanFrameWindow : Window
 {
     private const uint WindowDisplayAffinityExcludeFromCapture = 0x11;
-    private readonly ScreenScanFrameGeometry geometry;
+    private ScreenScanFrameGeometry geometry;
     private readonly ScreenScanFrameWorker worker;
     private readonly Action<ScreenScanFrameGeometry> geometryChanged;
     private readonly DispatcherTimer timer = new();
     private readonly ILogger logger;
     private readonly OverlayTextsControl overlay;
     private FrameworkElement titleBar = null!;
+    private Border frameBorder = null!;
     private Thumb resizeThumb = null!;
     private int capturing;
 
@@ -507,7 +544,9 @@ internal sealed class ScreenScanFrameWindow : Window
             BorderBrush = new SolidColorBrush(MediaColor.FromArgb(235, 0, 190, 255)),
             BorderThickness = new Thickness(1.5),
             IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed,
         };
+        this.frameBorder = frameBorder;
         Panel.SetZIndex(frameBorder, 1);
         root.Children.Add(frameBorder);
 
@@ -535,6 +574,21 @@ internal sealed class ScreenScanFrameWindow : Window
         closeButton.Click += (_, _) => Close();
         DockPanel.SetDock(closeButton, Dock.Right);
         titlePanel.Children.Add(closeButton);
+
+        var settingsButton = new Button
+        {
+            Content = "⚙",
+            Width = 25,
+            Height = 22,
+            Padding = new Thickness(0),
+            FontSize = 14,
+            ToolTip = "إعدادات حجم الخط والألوان",
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        settingsButton.Click += (_, _) => ShowAppearanceSettings();
+        DockPanel.SetDock(settingsButton, Dock.Right);
+        titlePanel.Children.Add(settingsButton);
         titlePanel.Children.Add(new TextBlock
         {
             Text = "منطقة المسح",
@@ -591,6 +645,7 @@ internal sealed class ScreenScanFrameWindow : Window
     {
         this.titleBar.SetCurrentValue(VisibilityProperty, enabled ? Visibility.Visible : Visibility.Collapsed);
         this.resizeThumb.SetCurrentValue(VisibilityProperty, enabled ? Visibility.Visible : Visibility.Collapsed);
+        this.frameBorder.SetCurrentValue(VisibilityProperty, enabled ? Visibility.Visible : Visibility.Collapsed);
         if (!IsLoaded)
         {
             return;
@@ -616,6 +671,21 @@ internal sealed class ScreenScanFrameWindow : Window
         if (previousStyle == 0 && Marshal.GetLastWin32Error() != 0)
         {
             this.logger.LogWarning("画面OCRフレームのウィンドウスタイルを変更できませんでした。Win32 error: {Error}", Marshal.GetLastWin32Error());
+        }
+    }
+
+    private void ShowAppearanceSettings()
+    {
+        var dialog = new ScreenScanFrameAppearanceWindow(this.worker.Appearance)
+        {
+            Owner = this,
+        };
+
+        if (dialog.ShowDialog() == true && dialog.Result is { } appearance)
+        {
+            this.worker.UpdateAppearance(appearance);
+            this.geometry = this.geometry with { Appearance = appearance };
+            NotifyGeometryChanged();
         }
     }
 
@@ -801,5 +871,166 @@ public sealed class ScreenScanSelectionWindow : Window
         Canvas.SetTop(this.selection, top);
         this.selection.SetCurrentValue(WidthProperty, right - left);
         this.selection.SetCurrentValue(HeightProperty, bottom - top);
+    }
+}
+
+
+/// <summary>
+/// إعدادات شكل الترجمة الخاصة بإطار واحد.
+/// </summary>
+internal sealed class ScreenScanFrameAppearanceWindow : Window
+{
+    private readonly Slider fontScaleSlider;
+    private readonly Slider backgroundOpacitySlider;
+    private readonly TextBlock fontScaleValue;
+    private readonly TextBlock backgroundOpacityValue;
+    private readonly TextBox textColorBox;
+    private readonly TextBox backgroundColorBox;
+
+    public ScreenScanFrameAppearance? Result { get; private set; }
+
+    public ScreenScanFrameAppearanceWindow(ScreenScanFrameAppearance appearance)
+    {
+        Title = "إعدادات مظهر النافذة المخصصة";
+        Width = 430;
+        SizeToContent = SizeToContent.Height;
+        ResizeMode = ResizeMode.NoResize;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ShowInTaskbar = false;
+        FlowDirection = FlowDirection.RightToLeft;
+        Background = new SolidColorBrush(MediaColor.FromRgb(27, 31, 39));
+        Foreground = Brushes.White;
+        Padding = new Thickness(18);
+
+        this.fontScaleSlider = new Slider
+        {
+            Minimum = 0.5,
+            Maximum = 3.5,
+            Value = Math.Clamp(appearance.FontScale, 0.5, 3.5),
+            TickFrequency = 0.1,
+            IsSnapToTickEnabled = false,
+        };
+        this.fontScaleValue = new TextBlock
+        {
+            Text = $"{this.fontScaleSlider.Value:0.0}×",
+            Width = 48,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = Brushes.White,
+        };
+        this.fontScaleSlider.ValueChanged += (_, _) => this.fontScaleValue.Text = $"{this.fontScaleSlider.Value:0.0}×";
+
+        this.textColorBox = CreateColorBox(appearance.TextColor);
+        this.backgroundColorBox = CreateColorBox(appearance.BackgroundColor);
+
+        this.backgroundOpacitySlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 1,
+            Value = Math.Clamp(appearance.BackgroundOpacity, 0, 1),
+            TickFrequency = 0.05,
+            IsSnapToTickEnabled = false,
+        };
+        this.backgroundOpacityValue = new TextBlock
+        {
+            Text = $"{this.backgroundOpacitySlider.Value:P0}",
+            Width = 48,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = Brushes.White,
+        };
+        this.backgroundOpacitySlider.ValueChanged += (_, _) => this.backgroundOpacityValue.Text = $"{this.backgroundOpacitySlider.Value:P0}";
+
+        var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
+        panel.Children.Add(CreateField("حجم الخط", CreateSliderHost(this.fontScaleSlider, this.fontScaleValue)));
+        panel.Children.Add(CreateField("لون النص (Hex)", this.textColorBox));
+        panel.Children.Add(CreateField("لون خلفية النص (Hex)", this.backgroundColorBox));
+        panel.Children.Add(CreateField("شفافية خلفية النص", CreateSliderHost(this.backgroundOpacitySlider, this.backgroundOpacityValue)));
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 12, 0, 0),
+        };
+        var save = new Button { Content = "حفظ", MinWidth = 90, Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 8, 0) };
+        save.Click += (_, _) => SaveAndClose();
+        var cancel = new Button { Content = "إلغاء", MinWidth = 90, Padding = new Thickness(12, 6, 12, 6) };
+        cancel.Click += (_, _) => { DialogResult = false; Close(); };
+        buttons.Children.Add(save);
+        buttons.Children.Add(cancel);
+        panel.Children.Add(buttons);
+        Content = panel;
+    }
+
+    private static TextBox CreateColorBox(string value)
+        => new()
+        {
+            Text = value,
+            MinWidth = 130,
+            Padding = new Thickness(8, 5, 8, 5),
+            ToolTip = "مثال: #FFFFFF",
+            FlowDirection = FlowDirection.LeftToRight,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+        };
+
+    private static UIElement CreateSliderHost(Slider slider, TextBlock value)
+    {
+        var grid = new Grid { VerticalAlignment = VerticalAlignment.Center };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(slider, 0);
+        Grid.SetColumn(value, 1);
+        value.Margin = new Thickness(10, 0, 0, 0);
+        grid.Children.Add(slider);
+        grid.Children.Add(value);
+        return grid;
+    }
+
+    private static UIElement CreateField(string label, UIElement control)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 7, 0, 7) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var text = new TextBlock
+        {
+            Text = label,
+            Foreground = Brushes.White,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0),
+        };
+        Grid.SetColumn(text, 0);
+        Grid.SetColumn(control, 1);
+        grid.Children.Add(text);
+        grid.Children.Add(control);
+        return grid;
+    }
+
+    private void SaveAndClose()
+    {
+        var textColor = ParseColor(this.textColorBox.Text);
+        var backgroundColor = ParseColor(this.backgroundColorBox.Text);
+        if (textColor is null || backgroundColor is null)
+        {
+            MessageBox.Show(this, "اكتب الألوان بصيغة Hex مثل #FFFFFF أو #202020.", "قيمة لون غير صحيحة", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        this.Result = new ScreenScanFrameAppearance(
+            this.fontScaleSlider.Value,
+            textColor,
+            backgroundColor,
+            this.backgroundOpacitySlider.Value);
+        DialogResult = true;
+        Close();
+    }
+
+    private static string? ParseColor(string value)
+    {
+        value = value.Trim();
+        if (value.Length != 7 || !value.StartsWith('#') ||
+            !uint.TryParse(value.AsSpan(1), System.Globalization.NumberStyles.HexNumber, null, out _))
+        {
+            return null;
+        }
+        return value.ToUpperInvariant();
     }
 }
