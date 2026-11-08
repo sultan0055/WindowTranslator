@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Windows.Graphics.Capture;
 using WindowTranslator.Extensions;
 using WindowTranslator.Modules.Main;
+using WindowTranslator.Modules.ScreenScan;
 using WindowTranslator.Properties;
 using static Windows.Win32.PInvoke;
 
@@ -24,22 +25,31 @@ public partial class StartupViewModel
     private readonly IServiceProvider serviceProvider;
     private readonly IMainWindowModule mainWindowModule;
     private readonly IVirtualDesktopManager desktopManager;
+    private readonly ScreenScanFramesModule screenScanFrames;
     private readonly ObservableCollection<MenuItemViewModel> attachingWindows;
     private IWindow? logView;
 
     public IEnumerable<MenuItemViewModel> TaskBarIconMenus { get; }
 
-    public StartupViewModel(IPresentationService presentationService, IServiceProvider serviceProvider, IMainWindowModule mainWindowModule, IVirtualDesktopManager desktopManager)
+    public StartupViewModel(IPresentationService presentationService, IServiceProvider serviceProvider, IMainWindowModule mainWindowModule, IVirtualDesktopManager desktopManager, ScreenScanFramesModule screenScanFrames)
     {
         this.presentationService = presentationService;
         this.serviceProvider = serviceProvider;
         this.mainWindowModule = mainWindowModule;
         this.desktopManager = desktopManager;
+        this.screenScanFrames = screenScanFrames;
+        this.screenScanFrames.Restore();
         this.attachingWindows = new(this.mainWindowModule.OpenedWindows.Select(CreateMenu));
         this.mainWindowModule.OpenedWindows.CollectionChanged += OpenedWindows_CollectionChanged;
         this.TaskBarIconMenus =
         [
             new MenuItemViewModel(Resources.Attach, this.RunCommand, []),
+            new MenuItemViewModel("نوافذ مخصصة", null,
+            [
+                new MenuItemViewModel("إضافة نافذة مخصصة", this.AddScreenScanFrameCommand, []),
+                new MenuItemViewModel("إظهار حدود النوافذ للتعديل", this.ShowScreenScanFramesCommand, []),
+                new MenuItemViewModel("إخفاء حدود النوافذ بالكامل", this.HideScreenScanFramesCommand, []),
+            ]),
             new MenuItemViewModel(Resources.Attaching, null, this.attachingWindows),
             new MenuItemViewModel(Resources.Settings, this.OpenSettingsDialogCommand, []),
             new MenuItemViewModel(Resources.Log, this.OpenLogWindowCommand, []),
@@ -147,6 +157,24 @@ public partial class StartupViewModel
         if (!beforeVisible)
         {
             window.Close();
+        }
+    }
+
+    [RelayCommand]
+    private void ShowScreenScanFrames()
+        => this.screenScanFrames.SetEditMode(true);
+
+    [RelayCommand]
+    private void HideScreenScanFrames()
+        => this.screenScanFrames.SetEditMode(false);
+
+    [RelayCommand]
+    private void AddScreenScanFrame()
+    {
+        var selection = new ScreenScanSelectionWindow();
+        if (selection.ShowDialog() == true && selection.SelectedBounds is { } bounds)
+        {
+            this.screenScanFrames.AddFrame(bounds);
         }
     }
 
