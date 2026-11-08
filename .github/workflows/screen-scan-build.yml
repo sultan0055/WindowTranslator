@@ -4,21 +4,18 @@ on:
   push:
     branches:
       - feature/independent-screen-scan-frames
-  pull_request:
-    branches:
-      - master
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: screen-scan-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        self_contained: [true, false]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -28,19 +25,19 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Publish WindowTranslator
+      - name: Publish self-contained Windows build
         shell: pwsh
         run: |
-          dotnet publish WindowTranslator -c Release -o publish --sc ${{ matrix.self_contained }} `
+          dotnet publish WindowTranslator -c Release -o publish --sc true `
             -p:Version=0.0.0-screen-scan `
             -p:AssemblyVersion=0.0.0.0 `
             -p:FileVersion=0.0.0.0 `
             -p:InformationalVersion=0.0.0-screen-scan
 
-      - name: Upload portable build
+      - name: Upload Windows build
         uses: actions/upload-artifact@v7
         with:
-          name: WindowTranslator-screen-scan-${{ matrix.self_contained && 'self-contained' || 'framework-dependent' }}
+          name: WindowTranslator-screen-scan
           path: publish/
           if-no-files-found: error
           compression-level: 6
