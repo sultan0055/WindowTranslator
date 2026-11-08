@@ -431,9 +431,8 @@ internal sealed class ScreenScanFrameWindow : Window
     private readonly DispatcherTimer timer = new();
     private readonly ILogger logger;
     private readonly OverlayTextsControl overlay;
-    private readonly FrameworkElement titleBar;
-    private readonly Thumb resizeThumb;
-    private bool editMode;
+    private FrameworkElement titleBar = null!;
+    private Thumb resizeThumb = null!;
     private int capturing;
 
     public ScreenScanFrameWindow(
@@ -587,7 +586,6 @@ internal sealed class ScreenScanFrameWindow : Window
 
     public void SetEditMode(bool enabled)
     {
-        this.editMode = enabled;
         this.titleBar.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         this.resizeThumb.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         if (!IsLoaded)
@@ -596,7 +594,7 @@ internal sealed class ScreenScanFrameWindow : Window
         }
 
         var handle = new WindowInteropHelper(this).Handle;
-        var style = GetWindowLongPtr(handle, -20).ToInt64();
+        var style = GetWindowLong(handle, -20);
         const long transparent = 0x00000020;
         const long noActivate = 0x08000000;
         const long toolWindow = 0x00000080;
@@ -611,7 +609,7 @@ internal sealed class ScreenScanFrameWindow : Window
             style |= transparent;
             style |= noActivate;
         }
-        SetWindowLongPtr(handle, -20, new IntPtr(style));
+        SetWindowLong(handle, -20, style);
     }
 
     private async Task CaptureTickAsync()
@@ -644,11 +642,11 @@ internal sealed class ScreenScanFrameWindow : Window
             Height = Height,
         });
 
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
-    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
