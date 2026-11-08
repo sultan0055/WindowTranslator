@@ -104,9 +104,14 @@ public sealed class ScreenScanFramesModule : IDisposable
         try
         {
             var processInfo = scope.ServiceProvider.GetRequiredService<IProcessInfoStoreInternal>();
+            var targetSettings = scope.ServiceProvider.GetRequiredService<IOptionsSnapshot<TargetSettings>>().Value;
+            geometry = geometry with
+            {
+                Appearance = geometry.Appearance ?? new ScreenScanFrameAppearance(FontScale: targetSettings.FontScale),
+            };
             processInfo.SetTargetProcess(IntPtr.Zero, $"ScreenScanFrame-{geometry.Id:N}");
 
-            var worker = new ScreenScanFrameWorker(scope.ServiceProvider, this.logger, geometry.Appearance ?? new());
+            var worker = new ScreenScanFrameWorker(scope.ServiceProvider, this.logger, geometry.Appearance!);
             var window = new ScreenScanFrameWindow(
                 geometry,
                 worker,
