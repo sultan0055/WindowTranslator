@@ -45,6 +45,7 @@ public partial class StartupViewModel
         [
             new MenuItemViewModel(Resources.Attach, this.RunCommand, []),
             new MenuItemViewModel("إضافة إطار مسح مستقل", this.AddScreenScanFrameCommand, []),
+            new MenuItemViewModel("تبديل وضع تعديل الإطارات", this.ToggleScreenScanEditModeCommand, []),
             new MenuItemViewModel(Resources.Attaching, null, this.attachingWindows),
             new MenuItemViewModel(Resources.Settings, this.OpenSettingsDialogCommand, []),
             new MenuItemViewModel(Resources.Log, this.OpenLogWindowCommand, []),
@@ -154,6 +155,10 @@ public partial class StartupViewModel
             window.Close();
         }
     }
+
+    [RelayCommand]
+    private void ToggleScreenScanEditMode()
+        => this.screenScanFrames.ToggleEditMode();
 
     [RelayCommand]
     private void AddScreenScanFrame()
